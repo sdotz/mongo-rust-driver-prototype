@@ -21,7 +21,7 @@ const B64_CONFIG : base64::Config = base64::Config { char_set: base64::Character
                                                      newline: base64::Newline::LF,
                                                      pad: true, line_length: None };
 
-/// Handles SCRAM-SHA-1 authentication logic.
+/// Handles SCRAM-SHA-1 or MONGODB-CR authentication logic.
 pub struct Authenticator {
     db: Database,
 }
@@ -82,12 +82,10 @@ impl Authenticator {
 
         let result = try!(self.db.command(auth_cr_doc, Suppressed, None));
 
-        let result = result.get("ok");
+        let auth_status = result.get("ok");
 
-        println!("Auth Result: {:?}", result);
-
-        match result {
-            Some(&Bson::I32(1)) => Ok(()),
+        match auth_status {
+            Some(&Bson::FloatingPoint(1.0)) => Ok(()),
             _ => Err(ResponseError("Auth Failed, got non-1".to_owned()))
         }
     }
