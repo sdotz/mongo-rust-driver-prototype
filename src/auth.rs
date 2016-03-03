@@ -96,19 +96,16 @@ impl Authenticator {
         let pass_str = format!("{}:mongo:{}", user, password);
         let mut md5 = Md5::new();
         md5.input_str(&pass_str[..]);
-        let hashed_password = md5.result_str();
-        let password_digest = &hashed_password.as_bytes().to_hex();
+        let mut output_ha1 = [0; 16];
+        md5.result(&mut output_ha1);
+        let password_digest = &output_ha1.to_hex();
 
         let combine = format!("{}{}{}", nonce, user, password_digest);
         let mut md5 = Md5::new();
         md5.input_str(&combine[..]);
-        let hashed_combine = md5.result_str();
-        let combine_digest = &hashed_combine.as_bytes().to_hex();
-
-
-        println!("combine: {:?}", combine_digest);
-
-
+        let mut output_ha2 = [0; 16];
+        md5.result(&mut output_ha2);
+        let combine_digest = &output_ha2.to_hex();
 
         Ok(KeyData{key: combine_digest.to_string()})
     }
