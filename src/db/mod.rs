@@ -90,6 +90,8 @@ pub trait ThreadedDatabase {
             write_concern: Option<WriteConcern>) -> Database;
     /// Logs in a user using the SCRAM-SHA-1 mechanism.
     fn auth(&self, user: &str, password: &str) -> Result<()>;
+    /// Logs in a user using the MONGODB-CR mechanism.
+    fn auth_cr(&self, user: &str, password: &str) -> Result<()>;
     /// Creates a collection representation with inherited read and write controls.
     fn collection(&self, coll_name: &str) -> Collection;
     /// Creates a collection representation with custom read and write controls.
@@ -155,6 +157,11 @@ impl ThreadedDatabase for Database {
     fn auth(&self, user: &str, password: &str) -> Result<()> {
         let authenticator = Authenticator::new(self.clone());
         authenticator.auth(user, password)
+    }
+
+    fn auth_cr(&self, user: &str, password: &str) -> Result<()> {
+        let authenticator = Authenticator::new(self.clone());
+        authenticator.auth_cr(user, password)
     }
 
     fn collection(&self, coll_name: &str) -> Collection {

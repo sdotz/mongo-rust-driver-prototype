@@ -14,6 +14,7 @@ use error::Error::{DefaultError, MaliciousServerError, ResponseError};
 use error::MaliciousServerErrorType;
 use error::Result;
 use rustc_serialize::base64::{self, FromBase64, ToBase64};
+use rustc_serialize::hex::{ToHex};
 use textnonce::TextNonce;
 
 const B64_CONFIG : base64::Config = base64::Config { char_set: base64::CharacterSet::Standard,
@@ -23,6 +24,16 @@ const B64_CONFIG : base64::Config = base64::Config { char_set: base64::Character
 /// Handles SCRAM-SHA-1 authentication logic.
 pub struct Authenticator {
     db: Database,
+}
+
+#[derive(Debug)]
+struct NonceData {
+    nonce: String,
+}
+
+#[derive(Debug)]
+struct KeyData {
+    key: String,
 }
 
 struct InitialData {
@@ -54,6 +65,69 @@ impl Authenticator {
         self.finish(conversation_id, auth_data)
     }
 
+    pub fn auth_cr(self, user: &str, password: &str) -> Result<()> {
+        let nonce = try!(self.get_nonce());
+        let key = try!(self.compute_key(user, password, &nonce.nonce));
+        try!(self.send_auth_cr(user, &nonce.nonce, &key.key));
+        Ok(())
+    }
+
+    fn send_auth_cr(&self, user: &str, nonce: &str, key: &str) -> Result<()> {
+        let auth_cr_doc = doc! {
+            "authenticate" => 1,
+            "user" => user,
+            "nonce" => nonce,
+            "key" => key
+        };
+
+        let result = try!(self.db.command(auth_cr_doc, Suppressed, None));
+
+        let result = result.get("ok");
+
+        println!("Auth Result: {:?}", result);
+
+        match result {
+            Some(&Bson::I32(1)) => Ok(()),
+            _ => Err(ResponseError("Auth Failed, got non-1".to_owned()))
+        }
+    }
+
+    fn compute_key(&self, user: &str, password: &str, nonce: &str) -> Result<KeyData> {
+        let pass_str = format!("{}:mongo:{}", user, password);
+        let mut md5 = Md5::new();
+        md5.input_str(&pass_str[..]);
+        let hashed_password = md5.result_str();
+        let password_digest = &hashed_password.as_bytes().to_hex();
+
+        let combine = format!("{}{}{}", nonce, user, password_digest);
+        let mut md5 = Md5::new();
+        md5.input_str(&combine[..]);
+        let hashed_combine = md5.result_str();
+        let combine_digest = &hashed_combine.as_bytes().to_hex();
+
+
+        println!("combine: {:?}", combine_digest);
+
+
+
+        Ok(KeyData{key: combine_digest.to_string()})
+    }
+
+    fn get_nonce(&self) -> Result<NonceData> {
+        let get_nonce_doc = doc! {
+            "getnonce" => 1
+        };
+
+        let result = try!(self.db.command(get_nonce_doc, Suppressed, None));
+
+        let nonce = result.get("nonce");
+
+        match nonce {
+            Some(&Bson::String(ref nonce)) => Ok(NonceData{nonce: nonce.to_string()}),
+            _ => Err(ResponseError("Get nonce command failed".to_owned()))
+        }
+    }
+
     fn start(&self, user: &str) -> Result<InitialData> {
         let text_nonce = match TextNonce::sized(64) {
             Ok(text_nonce) => text_nonce,
@@ -73,7 +147,6 @@ impl Authenticator {
         };
 
         let doc = try!(self.db.command(start_doc, Suppressed, None));
-
         let data = match doc.get("payload") {
             Some(&Binary(_, ref payload)) => payload.to_owned(),
             _ => return Err(ResponseError("Invalid payload returned".to_owned()))
